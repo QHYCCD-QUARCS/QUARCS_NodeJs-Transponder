@@ -6,8 +6,6 @@
     
     npm install
     
-    sudo chmod 0777 broadcast_server
-    
     node server.js
 
 After running, you can minimize hiding it
