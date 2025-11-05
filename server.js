@@ -3,12 +3,9 @@ const WebSocket = require('ws');
 const dgram = require('dgram');
 const express = require('express');
 const { createServer } = require('http');
-<<<<<<< HEAD
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-=======
->>>>>>> c7cd5382c51430de8717c61a94027a359a52168a
 const os = require('os');
 
 // 创建 Express 应用
@@ -108,43 +105,14 @@ function setupWebSocketServer(wss) {
     });
 
     ws.on('message', function message(data, isBinary) {
-      // 解析接收到的消息
-      let parsedData;
-      try {
-        parsedData = JSON.parse(data);
-      } catch (e) {
-        console.error('Invalid JSON data received:', data);
-        return;
-      }
-
-      console.log(`Received message from ${clientId}:`, parsedData);
-
-      // 判断消息的类型
-      if (parsedData.type === "Broadcast_Msg") {
-        // 如果type是Broadcast_Msg，发送UDP广播消息 parsedData.message
-        const message = Buffer.from(parsedData.message);
-        if (BROADCAST_ADDR) {
-          udpSocket.send(message, 0, message.length, BROADCAST_PORT, BROADCAST_ADDR, (err) => {
-            if (err) {
-              console.error(`Error sending broadcast message: ${err}`);
-            } else {
-              // 打印广播发送的地址和端口
-              console.log(`Broadcast message sent to ${BROADCAST_ADDR}:${BROADCAST_PORT}`);
-              console.log(`Broadcast message: ${message}`);
-            }
-          });
-        } else {
-          console.error('No broadcast address found.');
+      console.log(`Received message from ${clientId}: ${data}`);
+      // 迭代所有客户端并广播消息
+      wss.clients.forEach(function each(client) {
+        // 检查WebSocket是否打开并且不是发送消息的客户端
+        if (client.readyState === WebSocket.OPEN && client.id !== ws.id) {
+          client.send(data, { binary: isBinary });
         }
-      } else {
-        // 如果type不是Broadcast_Msg，则继续广播WebSocket消息
-        wss.clients.forEach(function each(client) {
-          // 检查WebSocket是否打开并且不是发送消息的客户端
-          if (client.readyState === WebSocket.OPEN && client.id !== ws.id) {
-            client.send(data, { binary: isBinary });
-          }
-        });
-      }
+      });
     });
 
     // 当客户端断开连接时
@@ -169,7 +137,7 @@ function setupWebSocketServer(wss) {
   });
 }
 
-// 设置两个WebSocket服务器
+// 设置WebSocket服务器
 setupWebSocketServer(wssHttp);
 setupWebSocketServer(wssHttps);
 
@@ -178,7 +146,6 @@ httpServer.listen(8600, () => {
   console.log('HTTP and WebSocket server started on ws://localhost:8600');
 });
 
-<<<<<<< HEAD
 // 让 HTTPS 服务器监听特定端口
 httpsServer.listen(8601, () => {
   console.log('HTTPS and WSS server started on wss://localhost:8601');
@@ -187,24 +154,14 @@ httpsServer.listen(8601, () => {
 // 获取广播地址函数
 function getBroadcastAddress() {
   const interfaces = os.networkInterfaces();
-
-=======
-// 获取广播地址函数
-function getBroadcastAddress() {
-  const interfaces = os.networkInterfaces();
   
->>>>>>> c7cd5382c51430de8717c61a94027a359a52168a
   for (let name of Object.keys(interfaces)) {
     for (let net of interfaces[name]) {
       // 跳过IPv6和非内部网络接口
       if (net.family === 'IPv4' && !net.internal) {
         const ipParts = net.address.split('.').map(Number);
         const subnetParts = net.netmask.split('.').map(Number);
-<<<<<<< HEAD
-
-=======
         
->>>>>>> c7cd5382c51430de8717c61a94027a359a52168a
         // 计算广播地址
         const broadcastParts = ipParts.map((part, i) => part | (~subnetParts[i] & 255));
         return broadcastParts.join('.');
@@ -249,72 +206,12 @@ setInterval(() => {
 udpSocket.bind(BROADCAST_PORT);
 
 // WebSocket 心跳功能
-<<<<<<< HEAD
-function noop() { }
-=======
 function noop() {}
->>>>>>> c7cd5382c51430de8717c61a94027a359a52168a
 
 function heartbeat() {
   this.isAlive = true;
 }
 
-<<<<<<< HEAD
-=======
-wss.on('connection', function connection(ws) {
-  const clientId = uuidv4(); // 为每个客户端分配一个唯一的ID
-  ws.id = clientId; // 把ID存储在WebSocket对象上
-
-  // 打印连接信息
-  console.log(`Client ${clientId} connected`);
-
-  ws.isAlive = true;
-  ws.on('pong', heartbeat);
-
-  // 通知所有连接的客户端有新客户端连接
-  const newClientMessage = {
-    type: "Server_msg",
-    message: `Client ${clientId} connected`
-  };
-  wss.clients.forEach(function each(client) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(newClientMessage));
-    }
-  });
-
-  ws.on('message', function message(data, isBinary) {
-    console.log(`Received message from ${clientId}: ${data}`);
-    // 迭代所有客户端并广播消息
-    wss.clients.forEach(function each(client) {
-      // 检查WebSocket是否打开并且不是发送消息的客户端
-      if (client.readyState === WebSocket.OPEN && client.id !== ws.id) {
-        client.send(data, { binary: isBinary });
-      }
-    });
-  });
-
-  // 当客户端断开连接时
-  ws.on('close', function close() {
-    console.log(`Client ${clientId} disconnected`);
-
-    // 创建要发送的 JSON 消息
-    const messageObj = {
-      type: "Server_msg",
-      message: `Client ${clientId} disconnected`
-    };
-
-    // 通知所有连接的客户端
-    wss.clients.forEach(function each(client) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(messageObj));
-      }
-    });
-  });
-
-  ws.on('error', console.error);
-});
-
->>>>>>> c7cd5382c51430de8717c61a94027a359a52168a
 const interval = setInterval(function ping() {
   wssHttp.clients.forEach(function each(ws) {
     if (ws.isAlive === false) {
@@ -346,27 +243,4 @@ wssHttps.on('close', function close() {
   clearInterval(interval);
 });
 
-// 监听进程的退出事件
-process.on('exit', () => {
-  // 关闭WebSocket服务器
-  wssHttp.close(() => {
-    console.log('WebSocket server closed');
-  });
-<<<<<<< HEAD
-  wssHttps.close(() => {
-    console.log('WebSocket server closed');
-  });
-=======
->>>>>>> c7cd5382c51430de8717c61a94027a359a52168a
-  // 关闭UDP socket
-  udpSocket.close(() => {
-    console.log('UDP socket closed');
-  });
-});
-
-<<<<<<< HEAD
-// console.log('WebSocket server started on ws://localhost:8600');
-
-=======
-console.log('WebSocket server started on ws://localhost:8600');
->>>>>>> c7cd5382c51430de8717c61a94027a359a52168a
+console.log('Server started successfully!');
