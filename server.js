@@ -172,17 +172,19 @@ function getBroadcastAddresses() {
       }
     }
   }
-  // 如果没有找到任何网卡的广播地址，使用全网广播作为兜底
-  if (broadcastSet.size === 0) {
-    broadcastSet.add('255.255.255.255');
-  }
-
   return Array.from(broadcastSet);
 }
 
+// 树莓派热点广播地址（可通过环境变量 QUARCS_HOTSPOT_BROADCAST_ADDR 覆盖，默认 192.168.4.255）
+const HOTSPOT_BROADCAST_ADDR = process.env.QUARCS_HOTSPOT_BROADCAST_ADDR || '192.168.4.255';
+
 // 自动获取所有广播地址（包含树莓派热点和其它网口）
 const BROADCAST_PORT = 8080;
-const BROADCAST_ADDRS = getBroadcastAddresses(); // 自动获取的广播地址列表
+// 把热点广播地址与网卡计算出的地址合并，确保热点频段一定被广播
+const BROADCAST_ADDRS = Array.from(new Set([
+  ...getBroadcastAddresses(),
+  HOTSPOT_BROADCAST_ADDR
+])); // 自动获取的广播地址列表（含热点）
 const BROADCAST_INTERVAL_SEC = 1000; // 广播间隔时间（毫秒）
 
 // 创建 UDP 套接字
