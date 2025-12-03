@@ -154,30 +154,36 @@ httpsServer.listen(8601, () => {
   console.log('HTTPS and WSS server started on wss://localhost:8601');
 });
 
-// 获取广播地址函数
-function getBroadcastAddress() {
+// 获取所有可用的广播地址函数（包括有线网口和热点等）
+function getBroadcastAddresses() {
   const interfaces = os.networkInterfaces();
+  const broadcastSet = new Set();
   
   for (let name of Object.keys(interfaces)) {
     for (let net of interfaces[name]) {
       // 跳过IPv6和非内部网络接口
       if (net.family === 'IPv4' && !net.internal) {
         const ipParts = net.address.split('.').map(Number);
-        const subnetParts = net.netmask.split('.').map(Number);
-        
+        const subnetParts = net.netmask.split('.').map(Number);        
         // 计算广播地址
         const broadcastParts = ipParts.map((part, i) => part | (~subnetParts[i] & 255));
-        return broadcastParts.join('.');
+        const broadcastAddr = broadcastParts.join('.');
+        broadcastSet.add(broadcastAddr);
       }
     }
   }
-  return null;
+  // 如果没有找到任何网卡的广播地址，使用全网广播作为兜底
+  if (broadcastSet.size === 0) {
+    broadcastSet.add('255.255.255.255');
+  }
+
+  return Array.from(broadcastSet);
 }
 
-// 自动获取广播地址
+// 自动获取所有广播地址（包含树莓派热点和其它网口）
 const BROADCAST_PORT = 8080;
-const BROADCAST_ADDR = getBroadcastAddress(); // 自动获取的广播地址
-const BROADCAST_INTERVAL_SEC = 500; // 广播间隔时间（毫秒）
+const BROADCAST_ADDRS = getBroadcastAddresses(); // 自动获取的广播地址列表
+const BROADCAST_INTERVAL_SEC = 1000; // 广播间隔时间（毫秒）
 
 // 创建 UDP 套接字
 const udpSocket = dgram.createSocket('udp4');
@@ -193,14 +199,16 @@ setInterval(() => {
   // 在广播消息中附带总版本号，便于客户端获知当前服务版本
   const payload = `Stellarium Shared Memory Service| Vh = ${TOTAL_VERSION}`;
   const message = Buffer.from(payload);
-  if (BROADCAST_ADDR) {
-    udpSocket.send(message, 0, message.length, BROADCAST_PORT, BROADCAST_ADDR, (err) => {
-      if (err) {
-        console.error(`Error sending broadcast message: ${err}`);
-      } else {
-        // 打印广播发送的地址和端口
-        console.log(`Broadcast message sent to ${BROADCAST_ADDR}:${BROADCAST_PORT}`);
-      }
+  if (BROADCAST_ADDRS && BROADCAST_ADDRS.length > 0) {
+    BROADCAST_ADDRS.forEach((addr) => {
+      udpSocket.send(message, 0, message.length, BROADCAST_PORT, addr, (err) => {
+        if (err) {
+          console.error(`Error sending broadcast message to ${addr}:${BROADCAST_PORT}: ${err}`);
+        } else {
+          // 打印广播发送的地址和端口
+          console.log(`Broadcast message sent to ${addr}:${BROADCAST_PORT}`);
+        }
+      });
     });
   } else {
     console.error('No broadcast address found.');
