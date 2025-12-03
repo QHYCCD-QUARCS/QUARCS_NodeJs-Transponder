@@ -8,6 +8,9 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// 全局总版本号（通过环境变量 QUARCS_TOTAL_VERSION 提供，格式 x.x.x）
+const TOTAL_VERSION = process.env.QUARCS_TOTAL_VERSION || '0.0.0';
+
 // 创建 Express 应用
 const app = express();
 
@@ -174,7 +177,7 @@ function getBroadcastAddress() {
 // 自动获取广播地址
 const BROADCAST_PORT = 8080;
 const BROADCAST_ADDR = getBroadcastAddress(); // 自动获取的广播地址
-const BROADCAST_INTERVAL_SEC = 2000; // 广播间隔时间（毫秒）
+const BROADCAST_INTERVAL_SEC = 500; // 广播间隔时间（毫秒）
 
 // 创建 UDP 套接字
 const udpSocket = dgram.createSocket('udp4');
@@ -187,7 +190,9 @@ udpSocket.on('listening', () => {
 
 // 定时广播消息
 setInterval(() => {
-  const message = Buffer.from('Stellarium Shared Memory Service');
+  // 在广播消息中附带总版本号，便于客户端获知当前服务版本
+  const payload = `Stellarium Shared Memory Service| Vh = ${TOTAL_VERSION}`;
+  const message = Buffer.from(payload);
   if (BROADCAST_ADDR) {
     udpSocket.send(message, 0, message.length, BROADCAST_PORT, BROADCAST_ADDR, (err) => {
       if (err) {
