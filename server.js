@@ -108,8 +108,50 @@ function setupWebSocketServer(wss) {
     });
 
     ws.on('message', function message(data, isBinary) {
-      console.log(`Received message from ${clientId}: ${data}`);
-      // 迭代所有客户端并广播消息
+      // 统一转成字符串便于日志与 JSON 解析
+      const textData = typeof data === 'string' ? data : data.toString();
+      console.log(`Received message from ${clientId}: ${textData}`);
+
+      // 尝试按 JSON 协议解析，便于对特定 type 做特殊处理
+      let parsedData = null;
+      try {
+        parsedData = JSON.parse(textData);
+      } catch (e) {
+        // 非 JSON 消息，直接按原逻辑转发
+      }
+
+      // 特殊处理 Broadcast_Msg：不进行 WebSocket 转发，而是通过 UDP 广播其内容
+      if (parsedData && parsedData.type === "Broadcast_Msg") {
+        const payloadString = parsedData.message != null ? String(parsedData.message) : "";
+        const message = Buffer.from(payloadString);
+
+        // 每次动态获取一次当前可用的广播地址，并合并热点广播地址
+        const dynamicAddrs = getBroadcastAddresses();
+        const BROADCAST_ADDRS = Array.from(new Set([
+          ...dynamicAddrs,
+          HOTSPOT_BROADCAST_ADDR
+        ]));
+
+        if (BROADCAST_ADDRS && BROADCAST_ADDRS.length > 0) {
+          BROADCAST_ADDRS.forEach((addr) => {
+            udpSocket.send(message, 0, message.length, BROADCAST_PORT, addr, (err) => {
+              if (err) {
+                console.error(`Error sending broadcast message to ${addr}:${BROADCAST_PORT}: ${err}`);
+              } else {
+                console.log(`Broadcast_Msg payload sent to ${addr}:${BROADCAST_PORT}`);
+                console.log(`Broadcast_Msg content: ${payloadString}`);
+              }
+            });
+          });
+        } else {
+          console.error('No broadcast address found for Broadcast_Msg.');
+        }
+
+        // 返回：不再把 Broadcast_Msg 作为 WebSocket 消息转发给其它客户端
+        return;
+      }
+
+      // 默认逻辑：迭代所有客户端并广播 WebSocket 消息
       wss.clients.forEach(function each(client) {
         // 检查WebSocket是否打开并且不是发送消息的客户端
         if (client.readyState === WebSocket.OPEN && client.id !== ws.id) {
