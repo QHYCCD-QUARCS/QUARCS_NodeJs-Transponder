@@ -175,16 +175,12 @@ function getBroadcastAddresses() {
   return Array.from(broadcastSet);
 }
 
-// 树莓派热点广播地址（可通过环境变量 QUARCS_HOTSPOT_BROADCAST_ADDR 覆盖，默认 192.168.4.255）
-const HOTSPOT_BROADCAST_ADDR = process.env.QUARCS_HOTSPOT_BROADCAST_ADDR || '192.168.4.255';
+// 树莓派热点广播地址（可通过环境变量 QUARCS_HOTSPOT_BROADCAST_ADDR 覆盖，默认 10.42.0.255）
+// 注意：如果你希望固定向 10.42.0.1（热点本机地址）发送，也可以把该环境变量设为 10.42.0.1
+const HOTSPOT_BROADCAST_ADDR = process.env.QUARCS_HOTSPOT_BROADCAST_ADDR || '10.42.0.255';
 
 // 自动获取所有广播地址（包含树莓派热点和其它网口）
 const BROADCAST_PORT = 8080;
-// 把热点广播地址与网卡计算出的地址合并，确保热点频段一定被广播
-const BROADCAST_ADDRS = Array.from(new Set([
-  ...getBroadcastAddresses(),
-  HOTSPOT_BROADCAST_ADDR
-])); // 自动获取的广播地址列表（含热点）
 const BROADCAST_INTERVAL_SEC = 1000; // 广播间隔时间（毫秒）
 
 // 创建 UDP 套接字
@@ -201,6 +197,15 @@ setInterval(() => {
   // 在广播消息中附带总版本号，便于客户端获知当前服务版本
   const payload = `Stellarium Shared Memory Service| Vh = ${TOTAL_VERSION}`;
   const message = Buffer.from(payload);
+
+  // 每次广播前动态获取一次当前可用的广播地址，适配插拔网线 / 热点启停等情况
+  const dynamicAddrs = getBroadcastAddresses();
+  // 把热点广播地址与网卡计算出的地址合并，确保热点频段一定被广播
+  const BROADCAST_ADDRS = Array.from(new Set([
+    ...dynamicAddrs,
+    HOTSPOT_BROADCAST_ADDR
+  ]));
+
   if (BROADCAST_ADDRS && BROADCAST_ADDRS.length > 0) {
     BROADCAST_ADDRS.forEach((addr) => {
       udpSocket.send(message, 0, message.length, BROADCAST_PORT, addr, (err) => {
