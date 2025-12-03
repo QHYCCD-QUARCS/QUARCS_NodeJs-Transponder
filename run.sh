@@ -1,0 +1,1 @@
+/home/quarcs/.nvm/versions/node/v12.22.12/bin/node /home/quarcs/workspace/QUARCS/QUARCS_NodeJs-Transponder/server.js
