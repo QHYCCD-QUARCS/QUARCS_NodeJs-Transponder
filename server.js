@@ -224,9 +224,13 @@ const HOTSPOT_BROADCAST_ADDR = process.env.QUARCS_HOTSPOT_BROADCAST_ADDR || '10.
 // 自动获取所有广播地址（包含树莓派热点和其它网口）
 const BROADCAST_PORT = 8080;
 const BROADCAST_INTERVAL_SEC = 1000; // 广播间隔时间（毫秒）
+const NETWORK_WATCH_INTERVAL_MS = Number(process.env.QUARCS_NETWORK_WATCH_INTERVAL_MS || 1000);
 
 // 创建 UDP 套接字
 const udpSocket = dgram.createSocket('udp4');
+
+let networkBroadcastSequence = 1;
+let lastNetworkSignature = '';
 
 // 设置广播权限
 udpSocket.on('listening', () => {
@@ -234,27 +238,63 @@ udpSocket.on('listening', () => {
   console.log(`UDP socket is listening and ready to broadcast on port ${BROADCAST_PORT}`);
 });
 
-// 定时广播消息
-setInterval(() => {
-  // 在广播消息中附带总版本号，便于客户端获知当前服务版本
-  const payload = `Stellarium Shared Memory Service| Vh = ${TOTAL_VERSION}`;
+function buildNetworkSnapshot() {
+  const interfaces = os.networkInterfaces();
+  const records = [];
+
+  for (const [name, nets] of Object.entries(interfaces)) {
+    for (const net of nets || []) {
+      if (net.family !== 'IPv4' || net.internal) continue;
+
+      const ipParts = net.address.split('.').map(Number);
+      const subnetParts = net.netmask.split('.').map(Number);
+      const broadcastParts = ipParts.map((part, i) => part | (~subnetParts[i] & 255));
+      const broadcastAddr = broadcastParts.join('.');
+
+      records.push({
+        name,
+        address: net.address,
+        netmask: net.netmask,
+        mac: net.mac || '',
+        cidr: net.cidr || '',
+        broadcast: broadcastAddr
+      });
+    }
+  }
+
+  records.sort((a, b) => {
+    const left = `${a.name}|${a.address}|${a.netmask}|${a.mac}|${a.broadcast}`;
+    const right = `${b.name}|${b.address}|${b.netmask}|${b.mac}|${b.broadcast}`;
+    return left.localeCompare(right);
+  });
+
+  return records;
+}
+
+function getBroadcastAddressesFromSnapshot(snapshot) {
+  const broadcastSet = new Set((snapshot || []).map(item => item.broadcast).filter(Boolean));
+  if (HOTSPOT_BROADCAST_ADDR) {
+    broadcastSet.add(HOTSPOT_BROADCAST_ADDR);
+  }
+  return Array.from(broadcastSet);
+}
+
+function buildBroadcastPayload(reason, snapshot, sequence) {
+  const compactIfaces = (snapshot || [])
+    .map(item => `${item.name}=${item.address}`)
+    .join(',');
+
+  return `Stellarium Shared Memory Service| Vh = ${TOTAL_VERSION}| Seq = ${sequence}| Reason = ${reason}| Ifaces = ${compactIfaces}`;
+}
+
+function sendUdpBroadcast(payload, addrs) {
   const message = Buffer.from(payload);
-
-  // 每次广播前动态获取一次当前可用的广播地址，适配插拔网线 / 热点启停等情况
-  const dynamicAddrs = getBroadcastAddresses();
-  // 把热点广播地址与网卡计算出的地址合并，确保热点频段一定被广播
-  const BROADCAST_ADDRS = Array.from(new Set([
-    ...dynamicAddrs,
-    HOTSPOT_BROADCAST_ADDR
-  ]));
-
-  if (BROADCAST_ADDRS && BROADCAST_ADDRS.length > 0) {
-    BROADCAST_ADDRS.forEach((addr) => {
+  if (addrs && addrs.length > 0) {
+    addrs.forEach((addr) => {
       udpSocket.send(message, 0, message.length, BROADCAST_PORT, addr, (err) => {
         if (err) {
           console.error(`Error sending broadcast message to ${addr}:${BROADCAST_PORT}: ${err}`);
         } else {
-          // 打印广播发送的地址和端口
           console.log(`Broadcast message sent to ${addr}:${BROADCAST_PORT}`);
         }
       });
@@ -262,7 +302,45 @@ setInterval(() => {
   } else {
     console.error('No broadcast address found.');
   }
+}
+
+function broadcastServiceSignal(reason = 'periodic') {
+  const snapshot = buildNetworkSnapshot();
+  const addrs = getBroadcastAddressesFromSnapshot(snapshot);
+  const payload = buildBroadcastPayload(reason, snapshot, networkBroadcastSequence);
+  sendUdpBroadcast(payload, addrs);
+}
+
+function refreshNetworkStateAndBroadcastIfNeeded() {
+  const snapshot = buildNetworkSnapshot();
+  const signature = JSON.stringify(snapshot);
+
+  if (!lastNetworkSignature) {
+    lastNetworkSignature = signature;
+    return;
+  }
+
+  if (signature !== lastNetworkSignature) {
+    lastNetworkSignature = signature;
+    networkBroadcastSequence += 1;
+
+    const addrs = getBroadcastAddressesFromSnapshot(snapshot);
+    const payload = buildBroadcastPayload('network_change', snapshot, networkBroadcastSequence);
+
+    console.log(`Network change detected, broadcast sequence -> ${networkBroadcastSequence}`);
+    sendUdpBroadcast(payload, addrs);
+  }
+}
+
+// 定时广播消息
+setInterval(() => {
+  broadcastServiceSignal('periodic');
 }, BROADCAST_INTERVAL_SEC);
+
+// 实时监听网络变化并编号广播
+setInterval(() => {
+  refreshNetworkStateAndBroadcastIfNeeded();
+}, NETWORK_WATCH_INTERVAL_MS);
 
 // 启动 UDP socket
 udpSocket.bind(BROADCAST_PORT);
