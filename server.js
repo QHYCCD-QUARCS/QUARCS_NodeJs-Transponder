@@ -197,6 +197,25 @@ httpsServer.listen(8601, () => {
 });
 
 // 获取所有可用的广播地址函数（包括有线网口和热点等）
+function isUsableIpv4Address(net) {
+  return net &&
+    (net.family === 'IPv4' || net.family === 4) &&
+    !net.internal &&
+    typeof net.address === 'string' &&
+    typeof net.netmask === 'string';
+}
+
+function calculateBroadcastAddress(address, netmask) {
+  const ipParts = address.split('.').map(Number);
+  const subnetParts = netmask.split('.').map(Number);
+  if (ipParts.length !== 4 || subnetParts.length !== 4 ||
+      ipParts.some(part => !Number.isInteger(part) || part < 0 || part > 255) ||
+      subnetParts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return null;
+  }
+  return ipParts.map((part, i) => part | (~subnetParts[i] & 255)).join('.');
+}
+
 function getBroadcastAddresses() {
   const interfaces = os.networkInterfaces();
   const broadcastSet = new Set();
@@ -204,12 +223,9 @@ function getBroadcastAddresses() {
   for (let name of Object.keys(interfaces)) {
     for (let net of interfaces[name]) {
       // 跳过IPv6和非内部网络接口
-      if (net.family === 'IPv4' && !net.internal) {
-        const ipParts = net.address.split('.').map(Number);
-        const subnetParts = net.netmask.split('.').map(Number);        
-        // 计算广播地址
-        const broadcastParts = ipParts.map((part, i) => part | (~subnetParts[i] & 255));
-        const broadcastAddr = broadcastParts.join('.');
+      if (isUsableIpv4Address(net)) {
+        const broadcastAddr = calculateBroadcastAddress(net.address, net.netmask);
+        if (!broadcastAddr) continue;
         broadcastSet.add(broadcastAddr);
       }
     }
@@ -244,12 +260,10 @@ function buildNetworkSnapshot() {
 
   for (const [name, nets] of Object.entries(interfaces)) {
     for (const net of nets || []) {
-      if (net.family !== 'IPv4' || net.internal) continue;
+      if (!isUsableIpv4Address(net)) continue;
 
-      const ipParts = net.address.split('.').map(Number);
-      const subnetParts = net.netmask.split('.').map(Number);
-      const broadcastParts = ipParts.map((part, i) => part | (~subnetParts[i] & 255));
-      const broadcastAddr = broadcastParts.join('.');
+      const broadcastAddr = calculateBroadcastAddress(net.address, net.netmask);
+      if (!broadcastAddr) continue;
 
       records.push({
         name,
@@ -275,6 +289,9 @@ function getBroadcastAddressesFromSnapshot(snapshot) {
   const broadcastSet = new Set((snapshot || []).map(item => item.broadcast).filter(Boolean));
   if (HOTSPOT_BROADCAST_ADDR) {
     broadcastSet.add(HOTSPOT_BROADCAST_ADDR);
+  }
+  if (broadcastSet.size === 0) {
+    broadcastSet.add('255.255.255.255');
   }
   return Array.from(broadcastSet);
 }
